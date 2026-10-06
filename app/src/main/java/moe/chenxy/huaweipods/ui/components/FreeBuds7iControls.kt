@@ -536,9 +536,14 @@ internal fun HuaweiEqualizerPreference(
                         style = MiuixTheme.textStyles.body1,
                     )
                     TextButton(
-                        text = "−",
+                        text = "−1",
                         enabled = !pending && gain > -60,
                         onClick = { editing = editing.withGain(index, gain - 10) },
+                    )
+                    TextButton(
+                        text = "−",
+                        enabled = !pending && gain > -60,
+                        onClick = { editing = editing.withGain(index, gain - 1) },
                     )
                     Text(
                         text = stringResource(R.string.freebuds7i_eq_gain, gain / 10f),
@@ -547,6 +552,11 @@ internal fun HuaweiEqualizerPreference(
                     )
                     TextButton(
                         text = "+",
+                        enabled = !pending && gain < 60,
+                        onClick = { editing = editing.withGain(index, gain + 1) },
+                    )
+                    TextButton(
+                        text = "+1",
                         enabled = !pending && gain < 60,
                         onClick = { editing = editing.withGain(index, gain + 10) },
                     )
