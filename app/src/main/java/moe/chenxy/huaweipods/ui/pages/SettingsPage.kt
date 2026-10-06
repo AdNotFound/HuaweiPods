@@ -49,6 +49,8 @@ fun SettingsPage(
     onMoreClickActionChange: (Int) -> Unit = {},
     fakeDeviceId: MutableState<String> = mutableStateOf(ConfigManager.DEFAULT_FAKE_DEVICE_ID),
     onFakeDeviceIdChange: (String) -> Unit = {},
+    controlMode: MutableState<Int> = mutableStateOf(ConfigManager.CONTROL_MODE_HOOK),
+    onControlModeChange: (Int) -> Unit = {},
     onOpenTheme: () -> Unit = {},
 ) {
     val languageOptions = listOf(
@@ -91,6 +93,14 @@ fun SettingsPage(
         stringResource(R.string.click_action_module),
         stringResource(R.string.click_action_smart_audio),
         stringResource(R.string.click_action_system_settings),
+    )
+    val controlModeValues = listOf(
+        ConfigManager.CONTROL_MODE_HOOK,
+        ConfigManager.CONTROL_MODE_DIRECT,
+    )
+    val controlModeOptions = listOf(
+        stringResource(R.string.control_mode_hook),
+        stringResource(R.string.control_mode_direct),
     )
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -151,6 +161,13 @@ fun SettingsPage(
 
         item {
             Card(modifier = Modifier.padding(top = 12.dp)) {
+                OverlayDropdownPreference(
+                    title = stringResource(R.string.control_mode),
+                    summary = stringResource(R.string.control_mode_summary),
+                    items = controlModeOptions,
+                    selectedIndex = controlModeValues.indexOf(controlMode.value).coerceAtLeast(0),
+                    onSelectedIndexChange = { onControlModeChange(controlModeValues[it]) },
+                )
                 OverlayDropdownPreference(
                     title = stringResource(R.string.island_mode),
                     summary = stringResource(R.string.island_mode_summary),

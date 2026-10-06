@@ -15,6 +15,8 @@ import android.os.Bundle
 import android.os.Looper
 import android.os.SystemClock
 import moe.chenxy.huaweipods.BuildConfig
+import moe.chenxy.huaweipods.config.ConfigManager
+import moe.chenxy.huaweipods.pods.ControlModePolicy
 import moe.chenxy.huaweipods.pods.HuaweiHfpController
 import moe.chenxy.huaweipods.pods.HuaweiDeviceInfoIdentity
 import moe.chenxy.huaweipods.pods.HuaweiDeviceRouteProbePolicy
@@ -104,7 +106,11 @@ object HeadsetStateDispatcher : HookContext() {
                         connectedHuaweiA2dpAddresses.add(normalizedAddress)
                         setHeadsetIcon(context, visible = true, reason = "connected")
                         startIconWatchdog(context)
-                        HuaweiHfpController.connectPod(context, device)
+                        if (ControlModePolicy.shouldHookHandleConnection(ConfigManager.controlMode())) {
+                            HuaweiHfpController.connectPod(context, device)
+                        } else {
+                            Log.d("HuaweiPods", "Direct control mode: skip hook connectPod")
+                        }
                     } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
                         connectedHuaweiA2dpAddresses.remove(normalizedAddress)
                         if (connectedHuaweiA2dpAddresses.isEmpty()) {
@@ -163,8 +169,10 @@ object HeadsetStateDispatcher : HookContext() {
             it.address.equals(savedAddress, ignoreCase = true)
         } ?: connectedDevices.firstOrNull()
         sessionDevice?.let { device ->
-            HuaweiHfpController.connectPod(context, device)
-            HuaweiHfpController.restoreHotReloadState(savedState)
+            if (ControlModePolicy.shouldHookHandleConnection(ConfigManager.controlMode())) {
+                HuaweiHfpController.connectPod(context, device)
+                HuaweiHfpController.restoreHotReloadState(savedState)
+            }
         }
     }
 

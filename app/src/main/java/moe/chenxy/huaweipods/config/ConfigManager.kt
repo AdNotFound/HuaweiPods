@@ -17,6 +17,7 @@ data class AppConfig(
     val notificationClickAction: Int = ConfigManager.NOTIFICATION_CLICK_MODULE_POPUP,
     val moreClickAction: Int = ConfigManager.MORE_CLICK_MODULE,
     val milinkLowLatencyCardEnabled: Boolean = true,
+    val controlMode: Int = ConfigManager.CONTROL_MODE_HOOK,
 )
 
 object ConfigManager {
@@ -33,6 +34,9 @@ object ConfigManager {
     const val PREF_KEY_NOTIFICATION_CLICK_ACTION = "notification_click_action"
     const val PREF_KEY_MORE_CLICK_ACTION = "more_click_action"
     const val PREF_KEY_MILINK_LOW_LATENCY_CARD_ENABLED = "milink_low_latency_card_enabled"
+    const val PREF_KEY_CONTROL_MODE = "control_mode"
+    const val CONTROL_MODE_HOOK = 0
+    const val CONTROL_MODE_DIRECT = 1
     const val DEFAULT_FAKE_DEVICE_ID = "01010607"
     const val LOG_LEVEL_OFF = 0
     const val LOG_LEVEL_BASIC = 1
@@ -91,6 +95,10 @@ object ConfigManager {
     fun moreClickAction(): Int = current().moreClickAction.normalizedMoreClickAction()
 
     fun milinkLowLatencyCardEnabled(): Boolean = current().milinkLowLatencyCardEnabled
+
+    fun controlMode(): Int = current().controlMode.normalizedControlMode()
+
+    fun isDirectControlMode(): Boolean = controlMode() == CONTROL_MODE_DIRECT
 
     fun fakeSupport(): String = "${fakeDeviceId()},000000000000000010000000"
 
@@ -163,6 +171,14 @@ object ConfigManager {
         save(prefs, service, current().copy(milinkLowLatencyCardEnabled = enabled))
     }
 
+    fun updateControlMode(
+        prefs: SharedPreferences,
+        service: XposedService?,
+        mode: Int,
+    ) {
+        save(prefs, service, current().copy(controlMode = mode.normalizedControlMode()))
+    }
+
     fun save(prefs: SharedPreferences, config: AppConfig) {
         val oldConfig = cachedConfig
         val normalized = config.copy(fakeDeviceId = config.fakeDeviceId.normalizedFakeDeviceId())
@@ -211,6 +227,7 @@ object ConfigManager {
                 PREF_KEY_MILINK_LOW_LATENCY_CARD_ENABLED,
                 config.milinkLowLatencyCardEnabled,
             )
+            .putInt(PREF_KEY_CONTROL_MODE, config.controlMode.normalizedControlMode())
             .commit()
     }
 
@@ -230,6 +247,7 @@ object ConfigManager {
         val directMilinkLowLatencyCardEnabled = prefs.booleanOrNull(
             PREF_KEY_MILINK_LOW_LATENCY_CARD_ENABLED,
         )
+        val directControlMode = prefs.getInt(PREF_KEY_CONTROL_MODE, Int.MIN_VALUE)
         val raw = prefs.getString(PREF_KEY_CONFIG_JSON, null)
         logPrefsSnapshot(source, prefs, directFakeDeviceId, raw)
         val config = raw?.let {
@@ -255,6 +273,7 @@ object ConfigManager {
                 moreClickAction = directMoreClickAction.takeIf { it != Int.MIN_VALUE } ?: config.moreClickAction,
                 milinkLowLatencyCardEnabled = directMilinkLowLatencyCardEnabled
                     ?: config.milinkLowLatencyCardEnabled,
+                controlMode = directControlMode.takeIf { it != Int.MIN_VALUE } ?: config.controlMode,
             ).normalized()
         }
         return config.copy(
@@ -270,6 +289,7 @@ object ConfigManager {
             moreClickAction = directMoreClickAction.takeIf { it != Int.MIN_VALUE } ?: config.moreClickAction,
             milinkLowLatencyCardEnabled = directMilinkLowLatencyCardEnabled
                 ?: config.milinkLowLatencyCardEnabled,
+            controlMode = directControlMode.takeIf { it != Int.MIN_VALUE } ?: config.controlMode,
         ).normalized()
     }
 
@@ -279,6 +299,7 @@ object ConfigManager {
         islandMode = NotificationPresentationPolicy.normalizedIslandStyle(islandMode),
         notificationClickAction = notificationClickAction.normalizedNotificationClickAction(),
         moreClickAction = moreClickAction.normalizedMoreClickAction(),
+        controlMode = controlMode.normalizedControlMode(),
     )
 
     private fun String.normalizedFakeDeviceId(): String = trim().takeIf { it.isNotEmpty() } ?: DEFAULT_FAKE_DEVICE_ID
@@ -296,6 +317,11 @@ object ConfigManager {
         MORE_CLICK_MODULE,
         -> this
         else -> MORE_CLICK_MODULE
+    }
+
+    internal fun Int.normalizedControlMode(): Int = when (this) {
+        CONTROL_MODE_DIRECT -> CONTROL_MODE_DIRECT
+        else -> CONTROL_MODE_HOOK
     }
 
     private fun SharedPreferences.booleanOrNull(key: String): Boolean? =
@@ -356,6 +382,9 @@ object ConfigManager {
                     "milinkLowLatencyCardEnabled=${oldConfig.milinkLowLatencyCardEnabled}->" +
                         newConfig.milinkLowLatencyCardEnabled,
                 )
+            }
+            if (oldConfig.controlMode != newConfig.controlMode) {
+                add("controlMode=${oldConfig.controlMode}->${newConfig.controlMode}")
             }
         }
     }

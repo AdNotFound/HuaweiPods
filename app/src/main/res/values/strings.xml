@@ -113,6 +113,10 @@
     <string name="transparency_voice">Enhance voices</string>
     <string name="island_mode">Super Island</string>
     <string name="island_mode_summary">Choose which battery island is displayed</string>
+    <string name="control_mode">Control method</string>
+    <string name="control_mode_summary">Hook integrates with HyperOS; Direct connects from the app without root/Xposed</string>
+    <string name="control_mode_hook">Hook (Xiaomi HyperOS)</string>
+    <string name="control_mode_direct">Direct (app connects via Bluetooth)</string>
     <string name="lockscreen_notification">Lock screen notifications</string>
     <string name="lockscreen_notification_summary">Allow an enabled persistent headset notification to appear on the lock screen and AOD</string>
     <string name="persistent_notification">Persistent headset notification</string>

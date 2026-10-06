@@ -493,6 +493,10 @@ object HuaweiHfpController {
     }
 
     fun setAncMode(status: Int, subMode: Int? = null) {
+        if (ControlModePolicy.shouldAppUseDirectTransport(ConfigManager.controlMode())) {
+            Log.w(TAG, "Huawei ANC skipped: direct control mode holds the RFCOMM channel")
+            return
+        }
         val currentDevice = device ?: run {
             Log.w(TAG, "Huawei ANC skipped: device null status=$status")
             return
@@ -1054,6 +1058,10 @@ object HuaweiHfpController {
     }
 
     fun setAncLevel(level: Int) {
+        if (ControlModePolicy.shouldAppUseDirectTransport(ConfigManager.controlMode())) {
+            Log.w(TAG, "Huawei ANC level skipped: direct control mode holds the RFCOMM channel")
+            return
+        }
         val currentDevice = device ?: run {
             Log.w(TAG, "Huawei ANC level skipped: device null level=$level")
             return

@@ -54,6 +54,8 @@ import moe.chenxy.huaweipods.config.PodImagePrefs
 import moe.chenxy.huaweipods.config.PodImageChangeNotifier
 import moe.chenxy.huaweipods.config.PodImageResource
 import moe.chenxy.huaweipods.pods.HuaweiDeviceRoute
+import moe.chenxy.huaweipods.pods.ControlModePolicy
+import moe.chenxy.huaweipods.pods.DirectPodConnectionManager
 import moe.chenxy.huaweipods.pods.NoiseControlMode
 import moe.chenxy.huaweipods.pods.UNKNOWN_HUAWEI_ANC_SUBMODE
 import moe.chenxy.huaweipods.pods.decodeHuaweiDeviceRouteFromBroadcast
@@ -182,6 +184,9 @@ internal fun MainUI(
     val prefs = remember { context.getSharedPreferences(ConfigManager.PREFS_NAME, Context.MODE_PRIVATE) }
     val lifecyclePrefs = remember(context) { AppLifecyclePrefs(context) }
     val appConfig = remember { ConfigManager.refreshFromPrefs(prefs) }
+    val controlMode = remember { mutableStateOf(appConfig.controlMode) }
+    var directActive by remember { mutableStateOf(false) }
+    var directConnecting by remember { mutableStateOf(false) }
     val milinkLowLatencyCardEnabled = remember {
         mutableStateOf(appConfig.milinkLowLatencyCardEnabled)
     }
@@ -304,11 +309,12 @@ internal fun MainUI(
     }
 
     val connectedAddressValid = BluetoothAdapter.checkBluetoothAddress(connectedDeviceAddress)
-    val canShowDetailPage = hookConnected.value && connectedAddressValid
+    val isDirectMode = ControlModePolicy.isDirectMode(controlMode.value)
+    val canShowDetailPage = (hookConnected.value || (isDirectMode && directActive)) && connectedAddressValid
     val showEarphoneDetail = canShowDetailPage && !showDevicePicker
     val displayBattery = batteryParams.value
     val displayAnc = ancMode.value
-    val displayTitle = mainTitle.value.takeIf { it.isNotBlank() && hookConnected.value } ?: mainTitle.value
+    val displayTitle = mainTitle.value.takeIf { it.isNotBlank() && (hookConnected.value || (isDirectMode && directActive)) } ?: mainTitle.value
 
     LaunchedEffect(xposedService) {
         val service = xposedService ?: return@LaunchedEffect
@@ -361,8 +367,8 @@ internal fun MainUI(
         }
     }
 
-    LaunchedEffect(pendingOpenEarphonesAfterPickerLoaded, connectingDeviceAddress, hookConnected.value) {
-        if (pendingOpenEarphonesAfterPickerLoaded && connectingDeviceAddress == null && hookConnected.value) {
+    LaunchedEffect(pendingOpenEarphonesAfterPickerLoaded, connectingDeviceAddress, hookConnected.value, directActive) {
+        if (pendingOpenEarphonesAfterPickerLoaded && connectingDeviceAddress == null && (hookConnected.value || directActive)) {
             withFrameNanos { }
             pendingOpenEarphonesAfterPickerLoaded = false
             showDevicePicker = false
@@ -632,6 +638,25 @@ internal fun MainUI(
             mode
         }
         ancMode.value = normalizedMode
+        if (ControlModePolicy.shouldAppUseDirectTransport(controlMode.value)) {
+            val subMode = when (normalizedMode) {
+                NoiseControlMode.NOISE_CANCELLATION ->
+                    huaweiAncLevel.value.takeIf {
+                        hasHuaweiAncLevel.value && route.supportsAncSubMode(it)
+                    }
+                NoiseControlMode.TRANSPARENCY ->
+                    huaweiTransparencySubMode.value.takeIf { it in supportedTransparencySubModes(route) }
+                NoiseControlMode.UNKNOWN,
+                NoiseControlMode.OFF -> null
+            }
+            val device = DirectPodConnectionManager.findBondedDevice(context, connectedDeviceAddress)
+            if (device == null) {
+                Toast.makeText(context, R.string.connect_failed, Toast.LENGTH_SHORT).show()
+                return
+            }
+            DirectPodConnectionManager.setAncMode(context, device, route, normalizedMode, subMode)
+            return
+        }
         Intent(HuaweiPodsAction.ACTION_ANC_SELECT).apply {
             putExtra("address", connectedDeviceAddress)
             putExtra("device_name", mainTitle.value)
@@ -677,6 +702,25 @@ internal fun MainUI(
             huaweiAncLevel.value = safeLevel
             hasHuaweiAncLevel.value = true
         }
+        if (ControlModePolicy.shouldAppUseDirectTransport(controlMode.value)) {
+            val device = DirectPodConnectionManager.findBondedDevice(context, connectedDeviceAddress)
+            if (device == null) {
+                Toast.makeText(context, R.string.connect_failed, Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (route.supportsAncDirectionDial) {
+                DirectPodConnectionManager.setAncLevel(context, device, route, safeLevel)
+            } else {
+                DirectPodConnectionManager.setAncMode(
+                    context = context,
+                    device = device,
+                    route = route,
+                    mode = ancMode.value,
+                    subMode = safeLevel,
+                )
+            }
+            return
+        }
         Intent(HuaweiPodsAction.ACTION_HUAWEI_ANC_LEVEL_SET).apply {
             putExtra("address", connectedDeviceAddress)
             putExtra("device_name", mainTitle.value)
@@ -692,6 +736,9 @@ internal fun MainUI(
 
     fun clearPodConnectionState() {
         val route = currentDeviceRoute()
+        DirectPodConnectionManager.disconnect()
+        directActive = false
+        directConnecting = false
         connectingDeviceAddress = null
         pendingOpenEarphonesAfterPickerLoaded = false
         connectedDeviceAddress = ""
@@ -707,6 +754,35 @@ internal fun MainUI(
         showConnectErrorDialog = false
         showDevicePicker = true
         onSelectedTabChange(MainTab.Earphones)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connectDirect(device: BluetoothDevice, route: HuaweiDeviceRoute) {
+        if (!DirectPodConnectionManager.canHandleRoute(route)) {
+            hookConnectionState = "error"
+            return
+        }
+        directConnecting = true
+        hookConnectionState = "connecting"
+        DirectPodConnectionManager.connect(
+            context = context,
+            device = device,
+            route = route,
+            onBattery = { batteryParams.value = it },
+            onComplete = { success ->
+                directConnecting = false
+                if (success) {
+                    connectedDeviceAddress = device.address
+                    mainTitle.value = runCatching { device.name }.getOrNull().orEmpty()
+                    directActive = true
+                    hookConnectionState = "connected"
+                    showDevicePicker = false
+                    onSelectedTabChange(MainTab.Earphones)
+                } else {
+                    hookConnectionState = "error"
+                }
+            },
+        )
     }
 
     fun onDeviceSelected(device: BluetoothDevice, route: HuaweiDeviceRoute) {
@@ -726,6 +802,10 @@ internal fun MainUI(
         showConnectErrorDialog = false
         showDevicePicker = true
         onSelectedTabChange(MainTab.Earphones)
+        if (ControlModePolicy.shouldAppUseDirectTransport(controlMode.value)) {
+            connectDirect(device, route)
+            return
+        }
         hookConnectionState = "connecting"
         Intent(HuaweiPodsAction.ACTION_CONNECT_POD_REQUEST).apply {
             putExtra("device", device)
@@ -789,7 +869,20 @@ internal fun MainUI(
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun refreshStatus() {
+        if (ControlModePolicy.shouldAppUseDirectTransport(controlMode.value)) {
+            if (!directActive) return
+            val device = DirectPodConnectionManager.findBondedDevice(context, connectedDeviceAddress)
+                ?: return
+            DirectPodConnectionManager.refreshBattery(
+                context = context,
+                device = device,
+                route = currentDeviceRoute(),
+                onBattery = { batteryParams.value = it },
+            )
+            return
+        }
         if (hookConnected.value) {
             context.sendBroadcast(Intent(HuaweiPodsAction.ACTION_REFRESH_STATUS).apply {
                 setPackage("com.android.bluetooth")
@@ -1085,6 +1178,20 @@ internal fun MainUI(
                             ConfigManager.updateIslandMode(prefs, xposedService, it)
                             broadcastConfigChanged(context, "com.android.bluetooth")
                             broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                        },
+                        controlMode = controlMode,
+                        onControlModeChange = {
+                            controlMode.value = it
+                            ConfigManager.updateControlMode(prefs, xposedService, it)
+                            broadcastConfigChanged(context, "com.android.bluetooth")
+                            broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                            if (ControlModePolicy.isDirectMode(it)) {
+                                hookConnected.value = false
+                            } else {
+                                DirectPodConnectionManager.disconnect()
+                                directActive = false
+                                directConnecting = false
+                            }
                         },
                         persistentNotificationEnabled = persistentNotificationEnabled,
                         onPersistentNotificationEnabledChange = {
