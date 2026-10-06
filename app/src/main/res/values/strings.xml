@@ -246,4 +246,12 @@
     <string name="onboarding_ready_group">For help or testing, join QQ group %1$s</string>
     <string name="huawei_equalizer_title">Custom equalizer</string>
     <string name="huawei_equalizer_summary">Reads the current earphone curve before editing</string>
+    <string name="eq_local_presets_title">Saved presets</string>
+    <string name="eq_local_presets_empty">No saved presets yet</string>
+    <string name="eq_local_preset_name">Preset name</string>
+    <string name="eq_local_preset_select_hint">Tap to load into the editor</string>
+    <string name="eq_local_preset_delete">Delete</string>
+    <string name="eq_local_preset_saved">Preset saved</string>
+    <string name="eq_local_preset_deleted">Preset deleted</string>
+    <string name="eq_local_preset_invalid_name">Enter a valid preset name</string>
 </resources>

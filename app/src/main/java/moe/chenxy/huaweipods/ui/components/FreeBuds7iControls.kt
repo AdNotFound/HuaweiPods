@@ -43,6 +43,7 @@ import moe.chenxy.huaweipods.pods.FreeClip2SpatialAudioMode
 import moe.chenxy.huaweipods.pods.HuaweiFreeBuds7iController
 import moe.chenxy.huaweipods.pods.HuaweiEqualizerCodec
 import moe.chenxy.huaweipods.pods.HuaweiEqualizerController
+import moe.chenxy.huaweipods.pods.HuaweiEqualizerLocalPresets
 import moe.chenxy.huaweipods.pods.HuaweiEqualizerPreset
 import moe.chenxy.huaweipods.pods.HuaweiEqualizerPresetPolicy
 import moe.chenxy.huaweipods.pods.HuaweiEqualizerState
@@ -333,6 +334,10 @@ internal fun HuaweiEqualizerPreference(
         mutableStateOf(HuaweiEqualizerPresetPolicy.FIRST_CUSTOM_ID)
     }
     var editingPresetName by remember(address) { mutableStateOf("") }
+    var localPresets by remember(address) {
+        mutableStateOf(HuaweiEqualizerLocalPresets.load(prefs, address))
+    }
+    var localPresetName by remember(address) { mutableStateOf("") }
     val defaultPresetNames = (HuaweiEqualizerPresetPolicy.FIRST_CUSTOM_ID..
         HuaweiEqualizerPresetPolicy.LAST_CUSTOM_ID).associateWith { presetId ->
         stringResource(
@@ -525,6 +530,89 @@ internal fun HuaweiEqualizerPreference(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                 )
             }
+            Text(
+                text = stringResource(R.string.eq_local_presets_title),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.body2,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+            if (localPresets.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.eq_local_presets_empty),
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.body2,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+            localPresets.forEach { preset ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = !pending, role = Role.Button) {
+                            editing = preset.gains
+                            editingPresetName = preset.name
+                            localPresetName = preset.name
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(preset.name, style = MiuixTheme.textStyles.headline1)
+                        Text(
+                            stringResource(R.string.eq_local_preset_select_hint),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.body2,
+                        )
+                    }
+                    TextButton(
+                        text = stringResource(R.string.eq_local_preset_delete),
+                        enabled = !pending,
+                        onClick = {
+                            localPresets = HuaweiEqualizerLocalPresets.remove(localPresets, preset.name)
+                            HuaweiEqualizerLocalPresets.save(prefs, address, localPresets)
+                            Toast.makeText(context, R.string.eq_local_preset_deleted, Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+            if (route != HuaweiDeviceRoute.HUAWEI_FREECLIP2) {
+                Text(
+                    text = stringResource(R.string.eq_local_preset_name),
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.body2,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+                TextField(
+                    value = localPresetName,
+                    onValueChange = { localPresetName = it },
+                    enabled = !pending,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+            TextButton(
+                text = stringResource(R.string.save),
+                enabled = !pending,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                onClick = {
+                    val name = if (route == HuaweiDeviceRoute.HUAWEI_FREECLIP2) {
+                        editingPresetName
+                    } else {
+                        localPresetName
+                    }
+                    if (HuaweiEqualizerLocalPresets.normalizeName(name) == null ||
+                        !HuaweiEqualizerLocalPresets.isValidGains(editing)
+                    ) {
+                        Toast.makeText(context, R.string.eq_local_preset_invalid_name, Toast.LENGTH_SHORT).show()
+                        return@TextButton
+                    }
+                    val updated = HuaweiEqualizerLocalPresets.upsert(localPresets, name, editing)
+                    localPresets = updated
+                    HuaweiEqualizerLocalPresets.save(prefs, address, updated)
+                    editingPresetName = HuaweiEqualizerLocalPresets.normalizeName(name).orEmpty()
+                    Toast.makeText(context, R.string.eq_local_preset_saved, Toast.LENGTH_SHORT).show()
+                },
+            )
             editing.forEachIndexed { index, gain ->
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -628,7 +716,9 @@ internal fun HuaweiEqualizerPreference(
                                 },
                             )
                         } else {
-                            context.setHuaweiCustomEqualizer(address, route, editing, onComplete)
+                            val presetName = HuaweiEqualizerLocalPresets.normalizeName(localPresetName)
+                                ?: "HuaweiPods EQ"
+                            context.setHuaweiCustomEqualizer(address, route, editing, presetName, onComplete)
                         }
                     },
                 )
@@ -821,6 +911,7 @@ private fun Context.setHuaweiCustomEqualizer(
     address: String,
     route: HuaweiDeviceRoute,
     gains: List<Int>,
+    presetName: String,
     complete: (Boolean) -> Unit,
 ) {
     val device = freeBuds7iDevice(address) ?: return complete(false)
@@ -829,7 +920,7 @@ private fun Context.setHuaweiCustomEqualizer(
         device = device,
         route = route,
         gains = gains,
-        presetName = "HuaweiPods EQ",
+        presetName = presetName,
         onComplete = complete,
     )
 }
